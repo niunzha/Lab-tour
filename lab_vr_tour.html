@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mount Marty Physics Lab — VR Tour</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; font-family: Arial, sans-serif; overflow: hidden; }
+
+    #loading-screen {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #0a0a1a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #fff;
+    }
+    #loading-screen h1 { font-size: 1.6rem; margin-bottom: 10px; color: #7ecfff; }
+    #loading-screen p  { font-size: 0.9rem; color: #aaa; margin-bottom: 24px; }
+    #progress-bar-wrap { width: 280px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+    #progress-bar      { height: 100%; width: 0%; background: #7ecfff; transition: width 0.3s; }
+
+    #ui-overlay {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 100; display: flex; align-items: center; gap: 14px;
+      background: rgba(0,0,0,0.6); border-radius: 40px;
+      padding: 10px 22px; backdrop-filter: blur(6px);
+    }
+    #ui-overlay button {
+      background: rgba(255,255,255,0.15); color: #fff;
+      border: 1px solid rgba(255,255,255,0.3); border-radius: 50%;
+      width: 44px; height: 44px; font-size: 1.3rem; cursor: pointer;
+      transition: background 0.2s;
+    }
+    #ui-overlay button:hover { background: rgba(255,255,255,0.3); }
+    #scene-label {
+      color: #fff; font-size: 0.85rem; min-width: 90px; text-align: center;
+    }
+    #thumbnail-strip {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      z-index: 100; display: flex; gap: 6px; align-items: center;
+      background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 12px;
+      backdrop-filter: blur(6px); max-width: 90vw; overflow-x: auto;
+    }
+    .thumb {
+      width: 48px; height: 28px; object-fit: cover; border-radius: 4px;
+      cursor: pointer; border: 2px solid transparent; flex-shrink: 0;
+      transition: border-color 0.2s, opacity 0.2s; opacity: 0.5;
+    }
+    .thumb.active { border-color: #7ecfff; opacity: 1; }
+    #help-hint {
+      position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%);
+      color: rgba(255,255,255,0.5); font-size: 0.75rem; z-index: 100;
+      pointer-events: none;
+    }
+    /* Fade overlay */
+    #fade {
+      position: fixed; inset: 0; z-index: 200;
+      background: #000; opacity: 0; pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+    #fade.fading { opacity: 1; pointer-events: all; }
+  </style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div id="loading-screen">
+  <h1>Mount Marty Physics Lab</h1>
+  <p>Loading VR Tour&hellip;</p>
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+</div>
+
+<!-- Fade overlay for scene transitions -->
+<div id="fade"></div>
+
+<!-- Desktop / flat-screen UI -->
+<div id="ui-overlay">
+  <button id="btn-prev" title="Previous (←)">&#8592;</button>
+  <span id="scene-label">1 / 40</span>
+  <button id="btn-next" title="Next (→)">&#8594;</button>
+</div>
+<div id="help-hint">← → arrow keys &nbsp;|&nbsp; Look at arrows in VR to navigate &nbsp;|&nbsp; Click VR button for Quest</div>
+
+<!-- Thumbnail strip -->
+<div id="thumbnail-strip"></div>
+
+<!-- A-Frame scene -->
+<a-scene
+  id="scene"
+  background="color: #000"
+  loading-screen="enabled: false"
+  webxr="referenceSpaceType: local-floor; requiredFeatures: local-floor; optionalFeatures: bounded-floor, hand-tracking"
+  renderer="colorManagement: true; physicallyCorrectLights: false; antialias: true"
+  vr-mode-ui="enabled: true; enterVRButton: #vr-button-custom"
+>
+
+  <!-- Assets (sky textures loaded dynamically via JS) -->
+  <a-assets id="assets" timeout="60000"></a-assets>
+
+  <!-- 360° panorama sky -->
+  <a-sky id="sky" radius="100" theta-length="180"></a-sky>
+
+  <!-- ───────── VR Navigation Arrows ───────── -->
+  <!-- These live in world-space; the gaze cursor activates them -->
+
+  <!-- PREV arrow: slightly left, at eye level, 5 m in front -->
+  <a-entity id="vr-prev"
+    position="-2.8 0 -4"
+    geometry="primitive: plane; width: 1.6; height: 0.7"
+    material="color: #1a2a3a; opacity: 0.85; transparent: true; side: double"
+    class="clickable"
+    event-set__mouseenter="material.color: #2d4a6a"
+    event-set__mouseleave="material.color: #1a2a3a"
+  >
+    <a-text value="◀  PREV" align="center" color="#7ecfff" width="3.5" position="0 0 0.01"></a-text>
+  </a-entity>
+
+  <!-- NEXT arrow: slightly right -->
+  <a-entity id="vr-next"
+    position="2.8 0 -4"
+    geometry="primitive: plane; width: 1.6; height: 0.7"
+    material="color: #1a2a3a; opacity: 0.85; transparent: true; side: double"
+    class="clickable"
+    event-set__mouseenter="material.color: #2d4a6a"
+    event-set__mouseleave="material.color: #1a2a3a"
+  >
+    <a-text value="NEXT  ▶" align="center" color="#7ecfff" width="3.5" position="0 0 0.01"></a-text>
+  </a-entity>
+
+  <!-- Scene info panel (center, slightly below eye level) -->
+  <a-entity id="vr-info" position="0 -1.1 -3.5">
+    <a-plane color="#0a0a1a" opacity="0.75" width="2.4" height="0.42"></a-plane>
+    <a-text id="vr-info-text" value="Scene 1 / 40" align="center" color="#fff" width="5" position="0 0 0.02"></a-text>
+  </a-entity>
+
+  <!-- ───────── Camera + Cursor ───────── -->
+  <a-entity id="camera-rig" position="0 1.6 0">
+    <a-entity
+      id="head"
+      camera="fov: 80"
+      look-controls="pointerLockEnabled: false"
+      wasd-controls="enabled: false"
+    >
+      <!-- Gaze cursor for VR (fuse = dwell-click after 1.5 s) -->
+      <a-cursor
+        id="cursor"
+        fuse="true"
+        fuse-timeout="1500"
+        raycaster="objects: .clickable; far: 20"
+        animation__click="property: scale; startEvents: click; from: 0.1 0.1 0.1; to: 1 1 1; dur: 150"
+        animation__fusing="property: scale; startEvents: fusing; from: 1 1 1; to: 0.1 0.1 0.1; dur: 1500; easing: easeInCubic"
+        animation__mouseleave="property: scale; startEvents: mouseleave; to: 1 1 1; dur: 150"
+        material="color: #7ecfff; shader: flat; opacity: 0.9"
+        geometry="primitive: ring; radiusInner: 0.02; radiusOuter: 0.03"
+      ></a-cursor>
+    </a-entity>
+
+    <!-- Quest controller support (right hand) -->
+    <a-entity
+      laser-controls="hand: right"
+      raycaster="objects: .clickable; far: 20; lineColor: #7ecfff; lineOpacity: 0.5"
+      line="color: #7ecfff; opacity: 0.5"
+    ></a-entity>
+    <!-- Quest controller support (left hand) -->
+    <a-entity
+      laser-controls="hand: left"
+      raycaster="objects: .clickable; far: 20; lineColor: #7ecfff; lineOpacity: 0.3"
+    ></a-entity>
+  </a-entity>
+
+</a-scene>
+
+<script>
+// ─────────────────────────────────────────────
+//  Scene data — 40 unique Insta360 X5 photos
+// ─────────────────────────────────────────────
+const IMAGES = [
+  "IMG_20260630_154142_352.JPG",
+  "IMG_20260630_154145_078.JPG",
+  "IMG_20260630_154147_285.JPG",
+  "IMG_20260630_154149_450.JPG",
+  "IMG_20260630_154151_642.JPG",
+  "IMG_20260630_154153_879.JPG",
+  "IMG_20260630_154156_058.JPG",
+  "IMG_20260630_154158_191.JPG",
+  "IMG_20260630_154200_319.JPG",
+  "IMG_20260630_154202_419.JPG",
+  "IMG_20260630_154204_544.JPG",
+  "IMG_20260630_154206_693.JPG",
+  "IMG_20260630_154208_880.JPG",
+  "IMG_20260630_154211_032.JPG",
+  "IMG_20260630_154213_203.JPG",
+  "IMG_20260630_154215_309.JPG",
+  "IMG_20260630_154217_359.JPG",
+  "IMG_20260630_154219_524.JPG",
+  "IMG_20260630_154221_690.JPG",
+  "IMG_20260630_154223_988.JPG",
+  "IMG_20260630_154226_177.JPG",
+  "IMG_20260630_154228_347.JPG",
+  "IMG_20260630_154230_717.JPG",
+  "IMG_20260630_154232_904.JPG",
+  "IMG_20260630_154235_112.JPG",
+  "IMG_20260630_154237_363.JPG",
+  "IMG_20260630_154239_663.JPG",
+  "IMG_20260630_154241_809.JPG",
+  "IMG_20260630_154243_803.JPG",
+  "IMG_20260630_154245_825.JPG",
+  "IMG_20260630_154247_953.JPG",
+  "IMG_20260630_154250_118.JPG",
+  "IMG_20260630_154252_225.JPG",
+  "IMG_20260630_154254_370.JPG",
+  "IMG_20260630_154256_492.JPG",
+  "IMG_20260630_154258_607.JPG",
+  "IMG_20260630_154300_706.JPG",
+  "IMG_20260630_154303_186.JPG",
+  "IMG_20260630_154305_465.JPG",
+  "IMG_20260630_154307_644.JPG",
+];
+const IMG_DIR = "Lab1/";
+const TOTAL   = IMAGES.length;
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let current  = 0;
+let isLoading = false;
+
+// Cache: keep the current + adjacent images warm
+const cache = {};   // filename -> HTMLImageElement (or true if loaded via a-assets)
+
+// ─────────────────────────────────────────────
+//  DOM refs (resolved after DOMContentLoaded)
+// ─────────────────────────────────────────────
+let sky, vrInfoText, sceneLabel, fade, loadingScreen, progressBar;
+let thumbs = [];
+
+// ─────────────────────────────────────────────
+//  Preload helper
+// ─────────────────────────────────────────────
+function preload(idx) {
+  if (idx < 0 || idx >= TOTAL) return;
+  const name = IMAGES[idx];
+  if (cache[name]) return;
+  const img = new Image();
+  img.src = IMG_DIR + name;
+  cache[name] = img;
+}
+
+// ─────────────────────────────────────────────
+//  Go to scene
+// ─────────────────────────────────────────────
+function goTo(idx, immediate) {
+  if (isLoading) return;
+  if (idx < 0 || idx >= TOTAL) return;
+  isLoading = true;
+
+  const doSwitch = () => {
+    current = idx;
+    const src = IMG_DIR + IMAGES[idx];
+
+    // Swap sky texture
+    sky.setAttribute('src', src);
+
+    // Update UI
+    sceneLabel.textContent = `${idx + 1} / ${TOTAL}`;
+    vrInfoText.setAttribute('value', `Scene ${idx + 1} / ${TOTAL}`);
+
+    // Update thumbnails
+    thumbs.forEach((t, i) => t.classList.toggle('active', i === idx));
+    thumbs[idx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
+    // Preload neighbours
+    preload(idx - 1);
+    preload(idx + 1);
+  };
+
+  if (immediate) {
+    doSwitch();
+    isLoading = false;
+    return;
+  }
+
+  // Fade out → switch → fade in
+  fade.classList.add('fading');
+  setTimeout(() => {
+    doSwitch();
+    setTimeout(() => {
+      fade.classList.remove('fading');
+      isLoading = false;
+    }, 120);
+  }, 360);
+}
+
+function goPrev() { goTo(current - 1); }
+function goNext() { goTo(current + 1); }
+
+// ─────────────────────────────────────────────
+//  Build thumbnail strip
+// ─────────────────────────────────────────────
+function buildThumbs() {
+  const strip = document.getElementById('thumbnail-strip');
+  IMAGES.forEach((name, i) => {
+    const img = document.createElement('img');
+    img.className = 'thumb' + (i === 0 ? ' active' : '');
+    img.src = IMG_DIR + name;
+    img.loading = 'lazy';
+    img.title = `Scene ${i + 1}`;
+    img.addEventListener('click', () => goTo(i));
+    strip.appendChild(img);
+    thumbs.push(img);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Loading screen progress (first 3 images)
+// ─────────────────────────────────────────────
+function runLoadingScreen() {
+  let loaded = 0;
+  const needed = Math.min(3, TOTAL);
+
+  const tick = () => {
+    loaded++;
+    progressBar.style.width = `${(loaded / needed) * 100}%`;
+    if (loaded >= needed) {
+      setTimeout(() => {
+        loadingScreen.style.opacity = '0';
+        loadingScreen.style.transition = 'opacity 0.5s';
+        setTimeout(() => loadingScreen.style.display = 'none', 500);
+      }, 300);
+    }
+  };
+
+  // Load first 3 synchronously via Image objects
+  for (let i = 0; i < needed; i++) {
+    const img = new Image();
+    img.onload = img.onerror = tick;
+    img.src = IMG_DIR + IMAGES[i];
+    cache[IMAGES[i]] = img;
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Init
+// ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  sky          = document.getElementById('sky');
+  vrInfoText   = document.getElementById('vr-info-text');
+  sceneLabel   = document.getElementById('scene-label');
+  fade         = document.getElementById('fade');
+  loadingScreen = document.getElementById('loading-screen');
+  progressBar  = document.getElementById('progress-bar');
+
+  buildThumbs();
+  runLoadingScreen();
+
+  // Set first scene immediately (no fade)
+  goTo(0, true);
+
+  // Desktop buttons
+  document.getElementById('btn-prev').addEventListener('click', goPrev);
+  document.getElementById('btn-next').addEventListener('click', goNext);
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft')  goPrev();
+    if (e.key === 'ArrowRight') goNext();
+  });
+
+  // Swipe support (mobile / Quest passthrough)
+  let touchX = null;
+  document.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; });
+  document.addEventListener('touchend',   e => {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 50) { dx < 0 ? goNext() : goPrev(); }
+    touchX = null;
+  });
+
+  // VR in-scene navigation buttons
+  document.getElementById('vr-prev').addEventListener('click', goPrev);
+  document.getElementById('vr-next').addEventListener('click', goNext);
+});
+</script>
+
+</body>
+</html>
